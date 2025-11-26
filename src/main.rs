@@ -1,10 +1,10 @@
 use critical_section::Mutex;
 use esp_idf_sys::*;
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU32};
+use std::time::{Duration};
 // Log jitter for each task. 
-use microfft::real::rfft_512;
+use microfft::real::rfft_1024;
 use core::f32::consts::PI;
 use num_complex::Complex32;
 
@@ -43,7 +43,7 @@ fn get_next_runtime(period_time: u32) -> i64{
 fn fft(){ 
 
 // --- FFT workload for Task B ---
-    let mut input: [f32; 512] = [0.0; 512];
+    let mut input: [f32; 1024] = [0.0; 1024];
     let freq: f32 = 5.0;
     let sample_rate: f32 = 100.0;
 
@@ -53,7 +53,7 @@ fn fft(){
     }
 
     // Run FFT (in-place)
-    let spectrum: &[Complex32; 256] = rfft_512(&mut input);
+    let spectrum: &[Complex32; 512] = rfft_1024(&mut input);
 
     // Compute max magnitude (⚠ must specify type!)
     let mut max_magnitude: f32 = 0.0;
@@ -123,7 +123,7 @@ extern "C" fn my_task_a(_arg: *mut c_void) {
             //--------------------------------------------------------
             // E. Do Task A workload here
             //--------------------------------------------------------
-            // (your light 50 ms work)
+            accumulator_example(); 
 
             //--------------------------------------------------------
             // F. Update last_start_us for the next cycle
