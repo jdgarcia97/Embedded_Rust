@@ -77,7 +77,7 @@ fn accumulator_example() {
 //
 // Simple FreeRTOS task pinned to a CPU core
 // TASK A 50 ms.
-
+// Performs a simple accumulator workload.
 extern "C" fn my_task_a(_arg: *mut c_void) {
     unsafe {
         let period_ms: u32 = 50;
@@ -133,7 +133,7 @@ extern "C" fn my_task_a(_arg: *mut c_void) {
     }
 }
 
-
+// TASK B 100 ms FFT workload
 extern "C" fn my_task_b(_arg: *mut c_void) {
     unsafe {
         let period_ms: u32 = 120;
@@ -186,7 +186,7 @@ extern "C" fn my_task_b(_arg: *mut c_void) {
         }
     }
 }
-
+// Just simulate a temperature sensor read every 250 ms with filtering
 extern "C" fn my_task_c(_arg: *mut c_void) {
     unsafe {
         let period_ms: u32 = 250;
@@ -281,7 +281,7 @@ fn main() {
             b"my_task\0".as_ptr(),       // name as *const u8
             4096,                        // stack size
             core::ptr::null_mut(),       // no arg
-            20,                           // priority
+            16,                           // priority
             core::ptr::null_mut(),       // no handle
             1,                           // <--- PIN TASK TO CORE 1
         );
