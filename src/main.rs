@@ -84,51 +84,75 @@ extern "C" fn my_task_a(_arg: *mut c_void) {
         let period_ticks: TickType_t = ms_to_ticks(period_ms);
         let period_us: i64 = (period_ms as i64) * 1000;
 
-        // 1. Anchor to RTOS tick timing
-        let mut last_wake_time: TickType_t = xTaskGetTickCount();
-        // Align to first period boundary
-        xTaskDelayUntil(&mut last_wake_time as *mut TickType_t, period_ticks);
+        // --- RTOS tick alignment ---
+        let mut last_wake = xTaskGetTickCount();
+        xTaskDelayUntil(&mut last_wake, period_ticks);
 
-        // 2. Record the time of this *first* actual start
-        let mut last_start_us: i64 = esp_timer_get_time();
+        let mut last_start_us = esp_timer_get_time();
+
+        // --- Simulation state ---
+        let mut phase: f32 = 0.0;
+        let mut drift: f32 = 0.0;
+
+        // --- Low-pass filter state variables ---
+        let mut ax_f: f32 = 0.0;
+        let mut ay_f: f32 = 0.0;
+        let mut az_f: f32 = 9.81; // gravity baseline
+
+        let alpha: f32 = 0.2; // filter strength
 
         loop {
-            //--------------------------------------------------------
-            // A. Compute expected start time for THIS cycle
-            //--------------------------------------------------------
-            let expected_us: i64 = last_start_us + period_us;
+            let expected_us = last_start_us + period_us;
 
-            //--------------------------------------------------------
-            // B. Sleep until the next RTOS period boundary
-            //--------------------------------------------------------
-            xTaskDelayUntil(&mut last_wake_time as *mut TickType_t, period_ticks);
+            xTaskDelayUntil(&mut last_wake as *mut TickType_t, period_ticks);
 
-            //--------------------------------------------------------
-            // C. Measure actual wake time
-            //--------------------------------------------------------
-            let actual_us: i64 = esp_timer_get_time();
-            let jitter_us: i64 = actual_us - expected_us;
+            let actual_us = esp_timer_get_time();
+            let jitter_us = actual_us - expected_us;
+            last_start_us = actual_us;
 
             let core = xTaskGetCoreID(core::ptr::null_mut());
-            println!("Task A jitter: {} us (core {})", jitter_us, core);
 
-            //--------------------------------------------------------
-            // D. Deadline check (optional)
-            //--------------------------------------------------------
-            let deadline_us = expected_us + period_us;
-            if actual_us > deadline_us {
-                println!("Task A MISSED DEADLINE!");
+            // ----- Accelerometer Simulation -----
+            phase += 0.05;
+            if phase > 2.0 * core::f32::consts::PI {
+                phase -= 2.0 * core::f32::consts::PI;
             }
 
-            //--------------------------------------------------------
-            // E. Do Task A workload here
-            //--------------------------------------------------------
-            accumulator_example(); 
+            drift += 0.0002;
+            if drift > 0.2 {
+                drift = -0.2;
+            }
 
-            //--------------------------------------------------------
-            // F. Update last_start_us for the next cycle
-            //--------------------------------------------------------
-            last_start_us = actual_us;
+            let ax = 9.81 * phase.sin() + drift;
+            let ay = 9.81 * phase.cos();
+            let az = 9.81 + (phase * 0.1).sin() * 0.1;
+
+            // --- PRNG vibration noise ---
+            let seed = (actual_us as u32)
+                .wrapping_mul(1664525)
+                .wrapping_add(1013904223);
+
+            let noise_x = (((seed >> 8) & 0xFF) as f32 / 255.0 - 0.5) * 0.02;
+            let noise_y = (((seed >> 16) & 0xFF) as f32 / 255.0 - 0.5) * 0.02;
+            let noise_z = (((seed >> 24) & 0xFF) as f32 / 255.0 - 0.5) * 0.02;
+
+            let ax_raw = ax + noise_x;
+            let ay_raw = ay + noise_y;
+            let az_raw = az + noise_z;
+
+            // ====== Add Low-Pass Filtering ======
+            ax_f = alpha * ax_raw + (1.0 - alpha) * ax_f;
+            ay_f = alpha * ay_raw + (1.0 - alpha) * ay_f;
+            az_f = alpha * az_raw + (1.0 - alpha) * az_f;
+
+            println!(
+                "Task A accel (core {}): RAW: ax={:.2} ay={:.2} az={:.2} | FILTERED: ax={:.2} ay={:.2} az={:.2} | jitter={} us",
+                core, ax_raw, ay_raw, az_raw, ax_f, ay_f, az_f, jitter_us
+            );
+
+            if actual_us > expected_us + period_us {
+                println!("Task A MISSED DEADLINE!");
+            }
         }
     }
 }
