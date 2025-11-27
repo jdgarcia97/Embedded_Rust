@@ -9,6 +9,70 @@ use core::f32::consts::PI;
 use num_complex::Complex32;
 
 // ==========================================================
+// wcet Macro for determining worst-case execution time
+// We want to generate or max/worst case execution time for tasks
+// ==========================================================
+
+macro_rules! measure_wcet {
+    ($name:expr, $iters:expr, $body:block) => {{
+        let mut min_us: i64 = i64::MAX;
+        let mut max_us: i64 = 0;
+        let mut sum_us: i64 = 0;
+
+        for _ in 0..$iters {
+            let start = unsafe { esp_timer_get_time() };
+            let _ = &$body;
+            let end = unsafe { esp_timer_get_time() };
+
+            let exec = end - start;
+
+            if exec < min_us { min_us = exec; }
+            if exec > max_us { max_us = exec; }
+            sum_us += exec;
+        }
+
+        let avg_us = sum_us / $iters as i64;
+
+        println!(
+            "[WCET] {:<12} → min={:>5}us | max={:>5}us | avg={:>5}us | iters={}",
+            $name, min_us, max_us, avg_us, $iters
+        );
+    }};
+}
+
+fn task_b_work() {
+    fft()
+}
+
+// ==========================================================
+// Get WCET for Task B FFT workload
+// ==========================================================
+extern "C" fn wcet_tester(_arg: *mut c_void) {
+    unsafe {
+        println!("\n===============================");
+        println!("      WCET TEST HARNESS");
+        println!("===============================\n");
+
+        const ITERS: usize = 2000;
+
+
+        // Test Task B workload (FFT)
+        measure_wcet!("Task B FFT", ITERS, {
+            task_b_work();
+        });
+
+
+        println!("\n======= WCET TEST COMPLETE =======\n");
+
+        // Stay alive
+        loop {
+            vTaskDelay(ms_to_ticks(1000));
+        }
+    }
+}
+
+
+// ==========================================================
 // JITTER TRACKING STRUCT
 // ==========================================================
 pub struct TaskStats {
@@ -28,7 +92,7 @@ fn ms_to_ticks(ms: u32) -> u32 {
         (ms * hz) / 1000
     }
 }
-
+// See if we can use this to get next runtime in us
 fn get_next_runtime(period_time: u32) -> i64{
 
     unsafe {
@@ -65,13 +129,6 @@ fn fft(){
         }
     }
     println!("FFT max magnitude: {}", max_magnitude);
-
-}
-fn accumulator_example() {
-    let mut acc: u128 = 0;
-    for number in 0..50_000 {
-        acc += number * number; 
-    }
 
 }
 //
@@ -294,12 +351,30 @@ extern "C" fn my_task_c(_arg: *mut c_void) {
     }
 }
 
-
+// Set for test mode
 
 fn main() {
     println!("Starting pinned task example...");
 
+const WCET_MODE: bool = true;
+
+
     unsafe {
+       // check for test mode. 
+       if WCET_MODE {
+            xTaskCreatePinnedToCore(
+                Some(wcet_tester),
+                b"wcet_tester\0".as_ptr(),
+                10_000,
+                core::ptr::null_mut(),
+                20,
+                core::ptr::null_mut(),
+                1,
+            );
+            return;
+       } else {
+           
+
         xTaskCreatePinnedToCore(
             Some(my_task_a),
             b"my_task\0".as_ptr(),       // name as *const u8
@@ -336,4 +411,5 @@ fn main() {
         std::thread::sleep(Duration::from_secs(5));
         println!("Main task alive...");
     }
+}
 }
